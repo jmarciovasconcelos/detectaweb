@@ -1,9 +1,9 @@
 const http = require('http');
 
-// Porta definida pelo ambiente ou 8000 fixa
-const PORT = process.env.PORT || 8000;
+// CORREÇÃO: Forçamos a porta 8000 e ignoramos a variável de ambiente
+// para garantir que bata com a configuração do EasyPanel
+const PORT = 8000; 
 
-// Conteúdo HTML/CSS/JS embutido
 const htmlContent = `
 <!DOCTYPE html>
 <html lang="pt-br">
@@ -83,7 +83,6 @@ const htmlContent = `
             width: 100%;
             height: 100%;
             object-fit: cover;
-            /* transform: scaleX(-1); Removido para alinhar melhor com canvas, ou precisa espelhar ambos */
         }
 
         canvas {
@@ -109,6 +108,7 @@ const htmlContent = `
             font-size: 1.5rem;
             z-index: 20;
             flex-direction: column;
+            text-align: center;
         }
     </style>
 </head>
@@ -124,11 +124,11 @@ const htmlContent = `
 
     <div class="video-container">
         <div id="loadingOverlay" class="loading-overlay">
-            Carregando modelos de IA...<br>
-            <span style="font-size: 0.9rem; margin-top: 10px;">(Pode demorar um pouco)</span>
+            Carregando IA...<br>
+            <span style="font-size: 0.9rem; margin-top: 10px;">(Aguarde, baixando modelos)</span>
         </div>
         <video id="video" autoplay muted playsinline></video>
-        </div>
+    </div>
 
     <script>
         const video = document.getElementById('video');
@@ -136,12 +136,11 @@ const htmlContent = `
         const statusMsg = document.getElementById('statusMsg');
         const loadingOverlay = document.getElementById('loadingOverlay');
 
-        // Memória local (RAM) para armazenar os alunos cadastrados
-        // Estrutura: { name: "João", code: "001", descriptor: Float32Array }
         let labeledDescriptors = [];
         
-        // Carrega os modelos da FaceAPI direto de um CDN
+        // Carrega modelos
         async function loadModels() {
+            // Usando CDN pública estável para os modelos
             const MODEL_URL = 'https://justadudewhohacks.github.io/face-api.js/models';
             
             try {
@@ -153,8 +152,8 @@ const htmlContent = `
                 ]);
                 startVideo();
             } catch (err) {
-                console.error("Erro ao carregar modelos:", err);
-                statusMsg.innerText = "Erro ao carregar IA. Verifique console.";
+                console.error("Erro Models:", err);
+                statusMsg.innerText = "Erro ao baixar modelos de IA.";
             }
         }
 
@@ -164,99 +163,76 @@ const htmlContent = `
                 video.srcObject = stream;
             } catch (err) {
                 console.error(err);
-                statusMsg.innerText = "Erro ao acessar webcam.";
+                statusMsg.innerText = "Sem permissão de câmera (Use HTTPS!)";
             }
         }
 
         video.addEventListener('play', () => {
             loadingOverlay.style.display = 'none';
-            statusMsg.innerText = "IA Pronta. Aproxime o rosto para cadastrar ou reconhecer.";
+            statusMsg.innerText = "Sistema Pronto.";
             btnRegister.disabled = false;
 
-            // Cria o canvas sobre o vídeo
             const canvas = faceapi.createCanvasFromMedia(video);
             document.querySelector('.video-container').append(canvas);
             
             const displaySize = { width: video.clientWidth, height: video.clientHeight };
             faceapi.matchDimensions(canvas, displaySize);
 
-            // Loop principal de detecção (a cada 100ms)
             setInterval(async () => {
-                // Detecta rosto + pontos + descritor
                 const detections = await faceapi.detectAllFaces(video, new faceapi.TinyFaceDetectorOptions())
                     .withFaceLandmarks()
                     .withFaceDescriptors();
 
                 const resizedDetections = faceapi.resizeResults(detections, displaySize);
-                
-                // Limpa o canvas anterior
                 canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
 
-                // Se não tem ninguém cadastrado, apenas desenha a caixa
                 if (labeledDescriptors.length === 0) {
                     faceapi.draw.drawDetections(canvas, resizedDetections);
                     return;
                 }
 
-                // Se TEM gente cadastrada, tenta reconhecer
-                const faceMatcher = new faceapi.FaceMatcher(labeledDescriptors, 0.6); // 0.6 é a distância de semelhança
-
+                const faceMatcher = new faceapi.FaceMatcher(labeledDescriptors, 0.6);
                 const results = resizedDetections.map(d => faceMatcher.findBestMatch(d.descriptor));
 
                 results.forEach((result, i) => {
                     const box = resizedDetections[i].detection.box;
-                    const { label, distance } = result;
-                    
-                    // Texto a exibir
-                    let text = label;
-                    if (label === 'unknown') text = "Desconhecido";
-                    
-                    const drawBox = new faceapi.draw.DrawBox(box, { label: text });
-                    drawBox.draw(canvas);
+                    const { label } = result;
+                    let text = label === 'unknown' ? "Desconhecido" : label;
+                    new faceapi.draw.DrawBox(box, { label: text }).draw(canvas);
                 });
-
             }, 100);
         });
 
-        // Função para cadastrar o aluno atual
         async function registerStudent() {
             const name = document.getElementById('studentName').value;
             const code = document.getElementById('studentCode').value;
 
-            if (!name || !code) {
-                alert("Preencha Nome e Código!");
-                return;
-            }
+            if (!name || !code) return alert("Preencha todos os campos!");
 
-            btnRegister.innerText = "Capturando...";
+            btnRegister.innerText = "Lendo rosto...";
             btnRegister.disabled = true;
 
-            // Detecta o rosto único com alta precisão para cadastro
+            // Usa SSD MobileNet para cadastro (mais preciso)
             const detection = await faceapi.detectSingleFace(video, new faceapi.SsdMobilenetv1Options())
                 .withFaceLandmarks()
                 .withFaceDescriptor();
 
             if (detection) {
-                // Cria um LabeledFaceDescriptors (formato da lib)
-                const newDescriptor = new faceapi.LabeledFaceDescriptors(
-                    \`\${name} (Cód: \${code})\`,
+                labeledDescriptors.push(new faceapi.LabeledFaceDescriptors(
+                    \`\${name} - \${code}\`,
                     [detection.descriptor]
-                );
-                
-                labeledDescriptors.push(newDescriptor);
-                
-                alert(\`Aluno \${name} cadastrado com sucesso!\`);
+                ));
+                alert("Cadastrado com sucesso!");
                 document.getElementById('studentName').value = '';
                 document.getElementById('studentCode').value = '';
             } else {
-                alert("Nenhum rosto detectado claramente. Fique parado em frente à câmera.");
+                alert("Rosto não detectado. Fique parado e ilumine o rosto.");
             }
 
             btnRegister.innerText = "Cadastrar Aluno";
             btnRegister.disabled = false;
         }
 
-        // Inicia tudo
         loadModels();
     </script>
 </body>
@@ -264,11 +240,10 @@ const htmlContent = `
 `;
 
 const server = http.createServer((req, res) => {
-    console.log(`[Request] ${req.method} ${req.url}`);
-
+    // Healthcheck para o EasyPanel não matar o app
     if (req.url === '/health') {
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ status: 'ok' }));
+        res.writeHead(200);
+        res.end('OK');
         return;
     }
 
@@ -278,10 +253,10 @@ const server = http.createServer((req, res) => {
         return;
     }
 
-    res.writeHead(404, { 'Content-Type': 'text/plain' });
-    res.end('404 Not Found');
+    res.writeHead(404);
+    res.end('404');
 });
 
 server.listen(PORT, () => {
-    console.log(`\nServidor de Reconhecimento rodando na porta ${PORT}\n`);
+    console.log(`\n--- SERVIDOR ONLINE NA PORTA ${PORT} ---\n`);
 });
