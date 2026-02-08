@@ -1,32 +1,3 @@
-/* ================================================================================
-ATENÇÃO - INSTRUÇÕES DE INSTALAÇÃO E CUIDADOS (LEIA ANTES DE ALTERAR)
-================================================================================
-PROJETO: Web Server Single-File para Acesso à Webcam
-ARQUIVO ÚNICO: server.js
-PORTA: 8000
-
-INSTRUÇÕES DE INSTALAÇÃO NO EASYPANEL:
-1. Crie o serviço (App).
-2. No 'Source', coloque apenas este arquivo.
-3. Nas configurações (Settings):
-   - Build Pack: Pode deixar automático ou selecionar Node.js.
-   - Start Command (se precisar): node server.js
-   - Port: 8000
-4. HTTPS é OBRIGATÓRIO: O EasyPanel deve fornecer o SSL (cadeado), senão
-   o navegador bloqueia a webcam por segurança.
-
-CUIDADOS PARA OUTRAS IAs E DESENVOLVEDORES:
-1. Este código usa ZERO dependências externas. Não adicione 'require(express)'
-   a menos que vá criar o package.json.
-2. O HTML está embutido na variável 'htmlContent'. Cuidado ao editar a string
-   para não quebrar a sintaxe do template string (crase `).
-3. O CSS e JS estão embutidos no HTML para manter o arquivo único.
-4. Mantenha os headers de segurança e o Healthcheck (/health) para o EasyPanel
-   não matar o processo.
-================================================================================
-*/
-
-
 const http = require('http');
 
 // Porta definida pelo ambiente ou 8000 fixa
@@ -39,7 +10,8 @@ const htmlContent = `
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Acesso Webcam - Cliente</title>
+    <title>Reconhecimento Facial - Escolar</title>
+    <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
     <style>
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -48,127 +20,255 @@ const htmlContent = `
             display: flex;
             flex-direction: column;
             align-items: center;
-            justify-content: center;
-            height: 100vh;
+            min-height: 100vh;
             margin: 0;
-            overflow: hidden;
         }
-        .container {
-            background-color: #1e1e1e;
-            padding: 25px;
-            border-radius: 12px;
-            box-shadow: 0 8px 32px rgba(0,0,0,0.6);
-            text-align: center;
-            width: 90%;
-            max-width: 720px;
-            border: 1px solid #333;
-        }
-        h1 { margin-bottom: 20px; font-size: 1.5rem; color: #fff; }
-        .video-wrapper {
-            width: 100%;
-            background: #000;
-            border-radius: 8px;
-            overflow: hidden;
-            position: relative;
-            aspect-ratio: 16/9;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            border: 2px solid #333;
-        }
-        video {
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-            transform: scaleX(-1);
-        }
-        .status {
+
+        .controls {
             margin-top: 20px;
-            padding: 12px;
-            border-radius: 6px;
-            font-weight: bold;
-            font-size: 0.95rem;
+            background: #1e1e1e;
+            padding: 20px;
+            border-radius: 8px;
+            display: flex;
+            gap: 10px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+            flex-wrap: wrap;
+            justify-content: center;
+            z-index: 10;
         }
-        .status.loading { background-color: #0277bd; color: white; }
-        .status.success { background-color: #2e7d32; color: white; }
-        .status.error { background-color: #c62828; color: white; }
-        #retryBtn {
-            margin-top: 15px;
+
+        input {
+            padding: 10px;
+            border-radius: 4px;
+            border: 1px solid #333;
+            background: #2c2c2c;
+            color: white;
+        }
+
+        button {
             padding: 10px 20px;
-            background-color: #444;
+            background-color: #2e7d32;
             color: white;
             border: none;
             border-radius: 4px;
             cursor: pointer;
-            display: none;
+            font-weight: bold;
         }
-        #retryBtn:hover { background-color: #666; }
+
+        button:disabled {
+            background-color: #555;
+            cursor: not-allowed;
+        }
+
+        button:hover:not(:disabled) {
+            background-color: #1b5e20;
+        }
+
+        .video-container {
+            position: relative;
+            margin-top: 20px;
+            width: 720px;
+            height: 560px;
+            background: #000;
+            border-radius: 8px;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            border: 2px solid #333;
+        }
+
+        video {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            /* transform: scaleX(-1); Removido para alinhar melhor com canvas, ou precisa espelhar ambos */
+        }
+
+        canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+
+        .status {
+            margin-top: 10px;
+            font-size: 0.9rem;
+            color: #bbb;
+        }
+        
+        .loading-overlay {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.8);
+            color: white;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 1.5rem;
+            z-index: 20;
+            flex-direction: column;
+        }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>Monitoramento de Webcam</h1>
-        <div class="video-wrapper">
-            <video id="webcam" autoplay playsinline muted></video>
-        </div>
-        <div id="statusMessage" class="status loading">
-            Inicializando câmera...
-        </div>
-        <button id="retryBtn" onclick="startWebcam()">Tentar Novamente</button>
-    </div>
-    <script>
-        const videoElement = document.getElementById('webcam');
-        const statusElement = document.getElementById('statusMessage');
-        const retryBtn = document.getElementById('retryBtn');
 
-        async function startWebcam() {
-            statusElement.className = "status loading";
-            statusElement.textContent = "Solicitando permissão da câmera...";
-            retryBtn.style.display = "none";
+    <div class="controls">
+        <input type="text" id="studentName" placeholder="Nome do Aluno">
+        <input type="text" id="studentCode" placeholder="Código (Ex: 123)">
+        <button id="btnRegister" onclick="registerStudent()" disabled>Cadastrar Aluno</button>
+    </div>
+
+    <div class="status" id="statusMsg">Aguardando carregamento da IA...</div>
+
+    <div class="video-container">
+        <div id="loadingOverlay" class="loading-overlay">
+            Carregando modelos de IA...<br>
+            <span style="font-size: 0.9rem; margin-top: 10px;">(Pode demorar um pouco)</span>
+        </div>
+        <video id="video" autoplay muted playsinline></video>
+        </div>
+
+    <script>
+        const video = document.getElementById('video');
+        const btnRegister = document.getElementById('btnRegister');
+        const statusMsg = document.getElementById('statusMsg');
+        const loadingOverlay = document.getElementById('loadingOverlay');
+
+        // Memória local (RAM) para armazenar os alunos cadastrados
+        // Estrutura: { name: "João", code: "001", descriptor: Float32Array }
+        let labeledDescriptors = [];
+        
+        // Carrega os modelos da FaceAPI direto de um CDN
+        async function loadModels() {
+            const MODEL_URL = 'https://justadudewhohacks.github.io/face-api.js/models';
+            
             try {
-                const stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { 
-                        width: { ideal: 1280 },
-                        height: { ideal: 720 },
-                        facingMode: "user"
-                    }, 
-                    audio: false 
-                });
-                videoElement.srcObject = stream;
-                statusElement.textContent = "Câmera conectada com sucesso.";
-                statusElement.className = "status success";
-            } catch (error) {
-                console.error("Erro na webcam:", error);
-                let msg = "Erro desconhecido.";
-                if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
-                    msg = "Acesso negado! Você precisa clicar em 'Permitir' no navegador.";
-                } else if (error.name === 'NotFoundError' || error.name === 'DevicesNotFoundError') {
-                    msg = "Nenhuma webcam detectada.";
-                } else if (error.name === 'NotReadableError' || error.name === 'TrackStartError') {
-                    msg = "A câmera já está sendo usada por outro aplicativo.";
-                } else if (window.isSecureContext === false) {
-                    msg = "Erro de Segurança: O navegador bloqueou a câmera porque o site não está usando HTTPS.";
-                } else {
-                    msg = "Falha ao abrir câmera: " + error.message;
-                }
-                statusElement.textContent = msg;
-                statusElement.className = "status error";
-                retryBtn.style.display = "inline-block";
+                await Promise.all([
+                    faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
+                    faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
+                    faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL),
+                    faceapi.nets.ssdMobilenetv1.loadFromUri(MODEL_URL)
+                ]);
+                startVideo();
+            } catch (err) {
+                console.error("Erro ao carregar modelos:", err);
+                statusMsg.innerText = "Erro ao carregar IA. Verifique console.";
             }
         }
-        window.addEventListener('load', startWebcam);
+
+        async function startVideo() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: {} });
+                video.srcObject = stream;
+            } catch (err) {
+                console.error(err);
+                statusMsg.innerText = "Erro ao acessar webcam.";
+            }
+        }
+
+        video.addEventListener('play', () => {
+            loadingOverlay.style.display = 'none';
+            statusMsg.innerText = "IA Pronta. Aproxime o rosto para cadastrar ou reconhecer.";
+            btnRegister.disabled = false;
+
+            // Cria o canvas sobre o vídeo
+            const canvas = faceapi.createCanvasFromMedia(video);
+            document.querySelector('.video-container').append(canvas);
+            
+            const displaySize = { width: video.clientWidth, height: video.clientHeight };
+            faceapi.matchDimensions(canvas, displaySize);
+
+            // Loop principal de detecção (a cada 100ms)
+            setInterval(async () => {
+                // Detecta rosto + pontos + descritor
+                const detections = await faceapi.detectAllFaces(video, new faceapi.TinyFaceDetectorOptions())
+                    .withFaceLandmarks()
+                    .withFaceDescriptors();
+
+                const resizedDetections = faceapi.resizeResults(detections, displaySize);
+                
+                // Limpa o canvas anterior
+                canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
+
+                // Se não tem ninguém cadastrado, apenas desenha a caixa
+                if (labeledDescriptors.length === 0) {
+                    faceapi.draw.drawDetections(canvas, resizedDetections);
+                    return;
+                }
+
+                // Se TEM gente cadastrada, tenta reconhecer
+                const faceMatcher = new faceapi.FaceMatcher(labeledDescriptors, 0.6); // 0.6 é a distância de semelhança
+
+                const results = resizedDetections.map(d => faceMatcher.findBestMatch(d.descriptor));
+
+                results.forEach((result, i) => {
+                    const box = resizedDetections[i].detection.box;
+                    const { label, distance } = result;
+                    
+                    // Texto a exibir
+                    let text = label;
+                    if (label === 'unknown') text = "Desconhecido";
+                    
+                    const drawBox = new faceapi.draw.DrawBox(box, { label: text });
+                    drawBox.draw(canvas);
+                });
+
+            }, 100);
+        });
+
+        // Função para cadastrar o aluno atual
+        async function registerStudent() {
+            const name = document.getElementById('studentName').value;
+            const code = document.getElementById('studentCode').value;
+
+            if (!name || !code) {
+                alert("Preencha Nome e Código!");
+                return;
+            }
+
+            btnRegister.innerText = "Capturando...";
+            btnRegister.disabled = true;
+
+            // Detecta o rosto único com alta precisão para cadastro
+            const detection = await faceapi.detectSingleFace(video, new faceapi.SsdMobilenetv1Options())
+                .withFaceLandmarks()
+                .withFaceDescriptor();
+
+            if (detection) {
+                // Cria um LabeledFaceDescriptors (formato da lib)
+                const newDescriptor = new faceapi.LabeledFaceDescriptors(
+                    \`\${name} (Cód: \${code})\`,
+                    [detection.descriptor]
+                );
+                
+                labeledDescriptors.push(newDescriptor);
+                
+                alert(\`Aluno \${name} cadastrado com sucesso!\`);
+                document.getElementById('studentName').value = '';
+                document.getElementById('studentCode').value = '';
+            } else {
+                alert("Nenhum rosto detectado claramente. Fique parado em frente à câmera.");
+            }
+
+            btnRegister.innerText = "Cadastrar Aluno";
+            btnRegister.disabled = false;
+        }
+
+        // Inicia tudo
+        loadModels();
     </script>
 </body>
 </html>
 `;
 
 const server = http.createServer((req, res) => {
-    // Log limpo sem caracteres de escape extras
     console.log(`[Request] ${req.method} ${req.url}`);
 
     if (req.url === '/health') {
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ status: 'ok', uptime: process.uptime() }));
+        res.end(JSON.stringify({ status: 'ok' }));
         return;
     }
 
@@ -183,9 +283,5 @@ const server = http.createServer((req, res) => {
 });
 
 server.listen(PORT, () => {
-    console.log(`\n==================================================`);
-    console.log(`SERVIDOR ONLINE (Single File Node)`);
-    console.log(`Porta: ${PORT}`);
-    console.log(`URL Local: http://localhost:${PORT}`);
-    console.log(`==================================================\n`);
+    console.log(`\nServidor de Reconhecimento rodando na porta ${PORT}\n`);
 });
