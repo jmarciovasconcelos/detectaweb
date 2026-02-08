@@ -26,12 +26,13 @@ CUIDADOS PARA OUTRAS IAs E DESENVOLVEDORES:
 ================================================================================
 */
 
+
 const http = require('http');
 
 // Porta definida pelo ambiente ou 8000 fixa
 const PORT = process.env.PORT || 8000;
 
-// Conteúdo HTML/CSS/JS embutido (Single File Architecture)
+// Conteúdo HTML/CSS/JS embutido
 const htmlContent = `
 <!DOCTYPE html>
 <html lang="pt-br">
@@ -40,7 +41,6 @@ const htmlContent = `
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Acesso Webcam - Cliente</title>
     <style>
-        /* CSS Integrado - Cuidado ao alterar para não quebrar layout */
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background-color: #121212;
@@ -53,7 +53,6 @@ const htmlContent = `
             margin: 0;
             overflow: hidden;
         }
-
         .container {
             background-color: #1e1e1e;
             padding: 25px;
@@ -64,29 +63,25 @@ const htmlContent = `
             max-width: 720px;
             border: 1px solid #333;
         }
-
         h1 { margin-bottom: 20px; font-size: 1.5rem; color: #fff; }
-
         .video-wrapper {
             width: 100%;
             background: #000;
             border-radius: 8px;
             overflow: hidden;
             position: relative;
-            aspect-ratio: 16/9; /* Força proporção Widescreen */
+            aspect-ratio: 16/9;
             display: flex;
             align-items: center;
             justify-content: center;
             border: 2px solid #333;
         }
-
         video {
             width: 100%;
             height: 100%;
             object-fit: cover;
-            transform: scaleX(-1); /* Efeito espelho */
+            transform: scaleX(-1);
         }
-
         .status {
             margin-top: 20px;
             padding: 12px;
@@ -94,12 +89,9 @@ const htmlContent = `
             font-weight: bold;
             font-size: 0.95rem;
         }
-
         .status.loading { background-color: #0277bd; color: white; }
         .status.success { background-color: #2e7d32; color: white; }
         .status.error { background-color: #c62828; color: white; }
-
-        /* Botão de recarregar manual caso falhe */
         #retryBtn {
             margin-top: 15px;
             padding: 10px 20px;
@@ -108,42 +100,32 @@ const htmlContent = `
             border: none;
             border-radius: 4px;
             cursor: pointer;
-            display: none; /* Só aparece se der erro */
+            display: none;
         }
         #retryBtn:hover { background-color: #666; }
-
     </style>
 </head>
 <body>
-
     <div class="container">
         <h1>Monitoramento de Webcam</h1>
-        
         <div class="video-wrapper">
             <video id="webcam" autoplay playsinline muted></video>
         </div>
-
         <div id="statusMessage" class="status loading">
             Inicializando câmera...
         </div>
-        
         <button id="retryBtn" onclick="startWebcam()">Tentar Novamente</button>
     </div>
-
     <script>
-        /* JS Integrado - Lógica do Cliente */
         const videoElement = document.getElementById('webcam');
         const statusElement = document.getElementById('statusMessage');
         const retryBtn = document.getElementById('retryBtn');
 
         async function startWebcam() {
-            // Reseta status visual
             statusElement.className = "status loading";
             statusElement.textContent = "Solicitando permissão da câmera...";
             retryBtn.style.display = "none";
-
             try {
-                // Tenta pegar a câmera com melhor resolução possível
                 const stream = await navigator.mediaDevices.getUserMedia({ 
                     video: { 
                         width: { ideal: 1280 },
@@ -152,17 +134,12 @@ const htmlContent = `
                     }, 
                     audio: false 
                 });
-
                 videoElement.srcObject = stream;
                 statusElement.textContent = "Câmera conectada com sucesso.";
                 statusElement.className = "status success";
-
             } catch (error) {
                 console.error("Erro na webcam:", error);
-                
                 let msg = "Erro desconhecido.";
-                
-                // Tratamento de erros comuns
                 if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
                     msg = "Acesso negado! Você precisa clicar em 'Permitir' no navegador.";
                 } else if (error.name === 'NotFoundError' || error.name === 'DevicesNotFoundError') {
@@ -174,50 +151,41 @@ const htmlContent = `
                 } else {
                     msg = "Falha ao abrir câmera: " + error.message;
                 }
-
                 statusElement.textContent = msg;
                 statusElement.className = "status error";
                 retryBtn.style.display = "inline-block";
             }
         }
-
-        // Inicia ao carregar
         window.addEventListener('load', startWebcam);
     </script>
 </body>
 </html>
 `;
 
-// Criação do Servidor (Sem Express, usando nativo HTTP)
 const server = http.createServer((req, res) => {
-    
-    // Log básico de requisição
-    console.log(\`[Request] \${req.method} \${req.url}\`);
+    // Log limpo sem caracteres de escape extras
+    console.log(`[Request] ${req.method} ${req.url}`);
 
-    // Rota de Healthcheck (Essencial para EasyPanel não reiniciar o container)
     if (req.url === '/health') {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ status: 'ok', uptime: process.uptime() }));
         return;
     }
 
-    // Rota padrão (Serve o HTML)
     if (req.url === '/' || req.url === '/index.html') {
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
         res.end(htmlContent);
         return;
     }
 
-    // 404 para qualquer outra coisa
     res.writeHead(404, { 'Content-Type': 'text/plain' });
     res.end('404 Not Found');
 });
 
-// Inicialização
 server.listen(PORT, () => {
-    console.log(\`\\n==================================================\`);
-    console.log(\`SERVIDOR ONLINE (Single File Node)\`);
-    console.log(\`Porta: \${PORT}\`);
-    console.log(\`URL Local: http://localhost:\${PORT}\`);
-    console.log(\`==================================================\\n\`);
+    console.log(`\n==================================================`);
+    console.log(`SERVIDOR ONLINE (Single File Node)`);
+    console.log(`Porta: ${PORT}`);
+    console.log(`URL Local: http://localhost:${PORT}`);
+    console.log(`==================================================\n`);
 });
